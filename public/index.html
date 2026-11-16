@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FitTrack</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Auth screen -->
+  <section id="auth-view" class="auth">
+    <div class="auth-card">
+      <h1>Fit<span>Track</span></h1>
+      <p class="muted">Log workouts, meals and weight in one place.</p>
+      <div class="tabs">
+        <button id="tab-login" class="active" type="button">Log in</button>
+        <button id="tab-register" type="button">Sign up</button>
+      </div>
+      <form id="auth-form">
+        <input id="auth-name" placeholder="Name" autocomplete="name" hidden />
+        <input id="auth-email" type="email" placeholder="Email" autocomplete="email" required />
+        <input id="auth-password" type="password" placeholder="Password (min 6 chars)" autocomplete="current-password" required />
+        <button class="primary" type="submit">Log in</button>
+        <p id="auth-error" class="error"></p>
+      </form>
+    </div>
+  </section>
+
+  <!-- App -->
+  <div id="app-view" hidden>
+    <header class="topbar">
+      <h1>Fit<span>Track</span></h1>
+      <nav id="nav">
+        <button data-page="dashboard" class="active">Dashboard</button>
+        <button data-page="workouts">Workouts</button>
+        <button data-page="meals">Meals</button>
+        <button data-page="weight">Weight</button>
+      </nav>
+      <div class="who"><span id="user-name"></span> <button id="logout" class="link">Log out</button></div>
+    </header>
+
+    <main>
+      <!-- Dashboard -->
+      <section id="page-dashboard" class="page">
+        <div class="cards">
+          <div class="card"><h3>Workouts this week</h3><div class="big" id="s-workouts">0</div><div class="muted" id="s-workouts-goal"></div><div class="bar"><i id="b-workouts"></i></div></div>
+          <div class="card"><h3>Active minutes (7 days)</h3><div class="big" id="s-minutes">0</div><div class="muted" id="s-burned"></div></div>
+          <div class="card"><h3>Calories today</h3><div class="big" id="s-cal">0</div><div class="muted" id="s-cal-goal"></div><div class="bar"><i id="b-cal"></i></div></div>
+          <div class="card"><h3>Latest weight</h3><div class="big" id="s-weight">–</div><div class="muted" id="s-weight-change"></div></div>
+        </div>
+        <div class="grid2">
+          <div class="card"><h3>Weight trend</h3><canvas id="weight-chart" height="180"></canvas><p id="weight-empty" class="muted" hidden>Log your weight to see a trend.</p></div>
+          <div class="card"><h3>Calories, last 7 days</h3><canvas id="cal-chart" height="180"></canvas><p id="cal-empty" class="muted" hidden>Log meals to see daily calories.</p></div>
+        </div>
+        <div class="grid2">
+          <div class="card"><h3>Workout types</h3><ul id="type-list" class="plain"></ul></div>
+          <div class="card">
+            <h3>Goals</h3>
+            <form id="goal-form" class="row">
+              <label>Daily calories <input id="goal-cal" type="number" min="1" required /></label>
+              <label>Workouts / week <input id="goal-wk" type="number" min="1" required /></label>
+              <button class="primary" type="submit">Save</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- Workouts -->
+      <section id="page-workouts" class="page" hidden>
+        <div class="card">
+          <h3>Log a workout</h3>
+          <form id="workout-form">
+            <div class="row">
+              <label>Type <input id="w-type" list="w-types" placeholder="Running, Lifting…" required /></label>
+              <datalist id="w-types"><option>Running</option><option>Cycling</option><option>Lifting</option><option>Yoga</option><option>Swimming</option><option>HIIT</option></datalist>
+              <label>Date <input id="w-date" type="date" required /></label>
+              <label>Minutes <input id="w-dur" type="number" min="1" required /></label>
+              <label>Calories burned <input id="w-cal" type="number" min="0" /></label>
+            </div>
+            <h4>Exercises <small class="muted">(optional, stored in MongoDB)</small></h4>
+            <div id="exercise-list"></div>
+            <button type="button" id="add-exercise" class="secondary">+ Add exercise</button>
+            <label class="block">Notes <textarea id="w-notes" rows="2"></textarea></label>
+            <button class="primary" type="submit">Save workout</button>
+            <p id="w-error" class="error"></p>
+          </form>
+        </div>
+        <div class="card"><h3>History</h3><div id="workout-list"></div></div>
+      </section>
+
+      <!-- Meals -->
+      <section id="page-meals" class="page" hidden>
+        <div class="card">
+          <h3>Log a meal</h3>
+          <form id="meal-form">
+            <div class="row">
+              <label>Date <input id="m-date" type="date" required /></label>
+              <label>Meal
+                <select id="m-type"><option>breakfast</option><option>lunch</option><option>dinner</option><option selected>snack</option></select>
+              </label>
+            </div>
+            <div id="food-list"></div>
+            <button type="button" id="add-food" class="secondary">+ Add food item</button>
+            <button class="primary" type="submit">Save meal</button>
+            <p id="m-error" class="error"></p>
+          </form>
+        </div>
+        <div class="card"><h3>Recent meals</h3><div id="meal-list"></div></div>
+      </section>
+
+      <!-- Weight -->
+      <section id="page-weight" class="page" hidden>
+        <div class="card">
+          <h3>Log weight</h3>
+          <form id="weight-form" class="row">
+            <label>Date <input id="wt-date" type="date" required /></label>
+            <label>Weight (kg) <input id="wt-kg" type="number" step="0.1" min="1" required /></label>
+            <button class="primary" type="submit">Save</button>
+          </form>
+          <p id="wt-error" class="error"></p>
+        </div>
+        <div class="card"><h3>Entries</h3><div id="weight-list"></div></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
