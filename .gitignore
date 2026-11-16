@@ -1,5 +1,8 @@
-node_modules
+__pycache__/
+*.py[cod]
 .env
-*.db
-*.db-wal
-*.db-shm
+.venv/
+venv/
+.pytest_cache/
+.coverage
+.DS_Store

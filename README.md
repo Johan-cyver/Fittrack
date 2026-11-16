@@ -1,51 +1,65 @@
-# FitTrack
+# FitTrack — Hybrid SQL + MongoDB Fitness Management System
 
-A fitness tracker using **two databases**, each doing what it is best at.
+FitTrack is a database-management project with a small web interface and a Flask API. It deliberately uses relational SQL for entities that require constraints and relationships, and MongoDB for flexible, evolving activity documents.
 
-| Data | Store | Why |
-|---|---|---|
-| Users, workout summaries, weight log, goals | **SQL via libSQL** (Turso in the cloud, plain SQLite file locally) | Structured, relational, needs constraints and aggregates |
-| Exercises/sets per workout, meals with variable food items | **MongoDB** (`mongoose`) | Flexible nested documents |
+## Database design
 
-A workout is split across both: the summary row lives in SQLite and the exercise/set detail lives in MongoDB, linked by `workoutId`. The dashboard (`/api/stats`) combines SQL aggregates with a Mongo aggregation pipeline.
+### MySQL (relational source of truth)
+- `members`: account identity, role and status
+- `trainers`: trainer records
+- `membership_plans`: plan catalogue, duration and price
+- `memberships`: member-to-plan relationship and validity
+- `payments`: payment records linked to members and memberships
+- `fitness_classes`: scheduled classes and trainer ownership
+- `class_assignments`: member bookings with a unique class/member constraint
 
-## Run it
+Foreign keys, unique constraints, check constraints and indexes protect relational integrity.
+
+### MongoDB (flexible document store)
+- `workout_logs`: variable exercises, sets, repetitions, duration and notes
+- `progress_logs`: body measurements and progress snapshots
+- `routines`: user-defined training routines
+- `activity_logs`: flexible activity history
+- `feedback`: member feedback
+
+Every Mongo document is scoped by `member_id`, which references the SQL `members.id`. This demonstrates a deliberate cross-database relationship without pretending MySQL and MongoDB share a distributed transaction.
+
+## Run locally
+
+1. Install Python 3.11+.
+2. Create a MySQL database and a MongoDB database (local or Atlas).
+3. Copy `.env.example` to `.env` and fill in credentials.
+4. Install and run:
 
 ```bash
-npm install
-cp .env.example .env     # set JWT_SECRET to a long random string
-# leave TURSO_* empty to use a local ./fittrack.db file
-# make sure MongoDB is running (e.g. mongod, or: docker run -p 27017:27017 mongo)
-npm start
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python app.py
 ```
 
-Open http://localhost:3000 and sign up.
+Open http://localhost:5000. The relational tables are created on the first API health check/request. Set `ADMIN_EMAIL` to the email address that should receive the administrator role when registering.
 
-## Deploy on Vercel
+## Deploy to Vercel
 
-1. Create a free **MongoDB Atlas** cluster and copy its connection string (allow access from anywhere, `0.0.0.0/0`, so Vercel can reach it).
-2. Create a free **Turso** database; note its `libsql://...` URL and an auth token.
-3. Push this repo to GitHub and import it in Vercel.
-4. Add environment variables: `JWT_SECRET`, `MONGO_URI`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`.
-5. Deploy. `api/index.js` exposes the Express app as a serverless function and `vercel.json` routes `/api/*` to it; `public/` is served statically. Tables are created automatically on first request.
+Import this repository as a Python project. Configure these Production and Preview environment variables in Vercel:
+- `JWT_SECRET`: long, random secret (never commit it)
+- `ADMIN_EMAIL`: administrator account email
+- `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`
+- `MONGO_URI`, `MONGO_DATABASE`
 
-## API (all but auth need `Authorization: Bearer <token>`)
+Vercel serverless functions are stateless. Use managed MySQL and MongoDB Atlas; do not rely on local database files. The `/api/health` endpoint checks both stores and returns HTTP 503 if either is unavailable. A deployment is not considered operational until both checks return `ok`.
 
-- `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `PUT /api/auth/goals`
-- `GET/POST /api/workouts`, `DELETE /api/workouts/:id`
-- `GET/POST /api/meals`, `DELETE /api/meals/:id`
-- `GET/POST /api/weight`, `DELETE /api/weight/:id`
-- `GET /api/stats`
+## API
 
-## Structure
+- `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`
+- `GET /api/health`
+- `GET /api/dashboard` (JWT required)
+- Admin CRUD: `/api/admin/{members,trainers,plans,memberships,payments,classes,assignments}` (admin JWT required)
+- Member documents: `GET/POST /api/logs/{workouts,progress,routines,activities,feedback}`; `DELETE /api/logs/{kind}/{id}`
 
-```
-server.js            Express app (exported for Vercel, listens when run directly)
-api/index.js         Vercel serverless entry
-vercel.json          Routes /api/* to the function
-db/sql.js            SQL schema + helpers (libSQL)
-db/mongo.js          Mongoose models + connection
-middleware/auth.js   JWT helpers
-routes/              auth, workouts, meals, weight, stats
-public/              index.html, style.css, app.js (no build step)
-```
+All protected routes require `Authorization: Bearer <token>`.
+
+## Important implementation note
+
+MySQL and MongoDB do not participate in one shared ACID transaction here. MySQL owns members and management relationships; MongoDB owns variable activity documents. The API validates and scopes each operation to the authenticated member, and the health check makes missing cloud configuration visible rather than silently falling back to ephemeral storage.
