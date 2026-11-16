@@ -10,7 +10,7 @@ from mysql.connector import pooling
 from flask import Flask, jsonify, request
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
-from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash\nfrom dotenv import load_dotenv\nfrom werkzeug.exceptions import HTTPException\n\nload_dotenv()
 
 app = Flask(__name__, static_folder="public", static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
