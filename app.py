@@ -32,7 +32,7 @@ _mongo_indexes_ready = False
 
 @app.before_request
 def initialize_api_schema():
-    if request.path.startswith("/api/"):
+    if request.path.startswith("/api/") and request.path != "/api/health":
         ensure_schema()
 
 SCHEMA = [
