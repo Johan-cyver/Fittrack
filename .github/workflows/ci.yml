@@ -1,0 +1,25 @@
+name: FitTrack checks
+
+on:
+  push:
+    branches: [main, fittrack-dbms-production]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Python application
+        run: python -m compileall -q app.py api
+      - name: Check frontend JavaScript syntax
+        run: node --check public/app.js
