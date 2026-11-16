@@ -26,6 +26,11 @@ _schema_lock = threading.Lock()
 _schema_ready = False
 _mongo_indexes_ready = False
 
+@app.before_request
+def initialize_api_schema():
+    if request.path.startswith("/api/"):
+        ensure_schema()
+
 SCHEMA = [
 """CREATE TABLE IF NOT EXISTS members (
  id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(120) NOT NULL,
@@ -285,7 +290,8 @@ def admin_collection(entity):
     try:
         cur = conn.cursor(dictionary=True)
         if request.method == "GET":
-            cur.execute(f"SELECT * FROM {table} ORDER BY id DESC LIMIT 200")
+            columns = "id,name,email,phone,date_of_birth,role,status,created_at,updated_at" if entity == "members" else "*"
+            cur.execute(f"SELECT {columns} FROM {table} ORDER BY id DESC LIMIT 200")
             rows = cur.fetchall()
             cur.close()
             return jsonify(rows)
@@ -318,6 +324,8 @@ def admin_collection(entity):
         new_id = cur.lastrowid
         cur.execute(f"SELECT * FROM {table} WHERE id=%s",(new_id,))
         row = cur.fetchone()
+        if entity == "members" and row:
+            row.pop("password_hash", None)
         cur.close()
         return jsonify(row),201
     except mysql.connector.Error as exc:
@@ -350,6 +358,8 @@ def admin_record(entity,row_id):
         conn.commit()
         cur.execute(f"SELECT * FROM {table} WHERE id=%s",(row_id,))
         row = cur.fetchone()
+        if entity == "members" and row:
+            row.pop("password_hash", None)
         cur.close()
         return (jsonify(row),200) if row else json_error("Record not found",404)
     except mysql.connector.Error as exc:
@@ -425,6 +435,8 @@ def not_found(_):
 
 @app.errorhandler(Exception)
 def unexpected_error(exc):
+    if isinstance(exc, HTTPException):
+        return json_error(exc.description, exc.code or 400)
     app.logger.exception("Unhandled request error")
     return json_error("Internal server error",500)
 
