@@ -24,6 +24,7 @@ _mysql_pool = None
 _mongo_client = None
 _schema_lock = threading.Lock()
 _schema_ready = False
+_mongo_indexes_ready = False
 
 SCHEMA = [
 """CREATE TABLE IF NOT EXISTS members (
@@ -134,16 +135,19 @@ def ensure_schema():
             conn.close()
 
 def mongo_db():
-    global _mongo_client
+    global _mongo_client, _mongo_indexes_ready
     uri = os.getenv("MONGO_URI")
     if not uri:
         raise RuntimeError("MONGO_URI is not configured")
     if _mongo_client is None:
         _mongo_client = MongoClient(uri, serverSelectionTimeoutMS=8000, connectTimeoutMS=8000)
     db_name = os.getenv("MONGO_DATABASE")
-    if db_name:
-        return _mongo_client[db_name]
-    return _mongo_client.get_default_database()
+    database = _mongo_client[db_name] if db_name else _mongo_client.get_default_database()
+    if not _mongo_indexes_ready:
+        for collection_name in DOC_COLLECTIONS.values():
+            database[collection_name].create_index([("member_id", 1), ("created_at", -1)])
+        _mongo_indexes_ready = True
+    return database
 
 def json_error(message, status=400):
     return jsonify({"error": message}), status
@@ -286,6 +290,22 @@ def admin_collection(entity):
             cur.close()
             return jsonify(rows)
         data = body_json()
+        if entity == "members":
+            return json_error("Create member accounts through /api/auth/register so passwords are securely hashed")
+        if entity == "assignments":
+            try:
+                class_id = int(data.get("class_id"))
+            except (TypeError, ValueError):
+                return json_error("A valid class_id is required")
+            cur.execute("SELECT capacity,status FROM fitness_classes WHERE id=%s FOR UPDATE", (class_id,))
+            class_row = cur.fetchone()
+            if not class_row or class_row["status"] != "scheduled":
+                conn.rollback()
+                return json_error("Class not found or not open for booking", 409)
+            cur.execute("SELECT COUNT(*) AS booked FROM class_assignments WHERE class_id=%s AND status <> 'cancelled'", (class_id,))
+            if cur.fetchone()["booked"] >= class_row["capacity"]:
+                conn.rollback()
+                return json_error("Class is full", 409)
         missing = [k for k in required if data.get(k) in (None,"")]
         if missing:
             return json_error("Required fields: " + ", ".join(missing))
