@@ -1,5 +1,6 @@
 import os
 import re
+import secrets
 import threading
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -91,6 +92,9 @@ SCHEMA = [
  FOREIGN KEY (class_id) REFERENCES fitness_classes(id) ON DELETE CASCADE,
  FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
  UNIQUE KEY uq_class_member (class_id,member_id), INDEX idx_assignments_member (member_id)
+) ENGINE=InnoDB""",
+"""CREATE TABLE IF NOT EXISTS fittrack_seed_state (
+ seed_key VARCHAR(80) PRIMARY KEY, seeded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB"""
 ]
 
@@ -141,6 +145,91 @@ def mysql_pool():
 def get_db():
     return mysql_pool().get_connection()
 
+def seed_demo_data(conn):
+    """Insert a small, clearly synthetic gym dataset once when explicitly enabled."""
+    if os.getenv("FITTRACK_SEED_DEMO", "false").lower() != "true":
+        return
+    cur = conn.cursor(dictionary=True)
+    cur.execute("SELECT seed_key FROM fittrack_seed_state WHERE seed_key='fittrack-demo-v1'")
+    if cur.fetchone():
+        cur.close()
+        return
+
+    trainers = [
+        ("Aarav Menon","aarav.trainer@example.test","Strength & Conditioning"),
+        ("Maya Iyer","maya.trainer@example.test","Yoga & Mobility"),
+        ("Rohan Das","rohan.trainer@example.test","HIIT & Functional Fitness")
+    ]
+    for name,email,specialty in trainers:
+        cur.execute("INSERT IGNORE INTO trainers (name,email,specialty,hire_date,status) VALUES (%s,%s,%s,CURDATE(),'active')",
+                    (name,email,specialty))
+
+    plans = [
+        ("Starter",30,999.00,"30-day access to the gym floor and essential facilities."),
+        ("Performance",90,2499.00,"90-day access with group classes and progress reviews."),
+        ("Elite",365,8999.00,"Annual access with priority class booking and coaching check-ins.")
+    ]
+    for name,duration,price,description in plans:
+        cur.execute("INSERT IGNORE INTO membership_plans (name,duration_days,price,description,status) VALUES (%s,%s,%s,%s,'active')",
+                    (name,duration,price,description))
+
+    demo_members = [
+        ("Nikhil Rao","nikhil.rao@example.test"),
+        ("Ananya Shah","ananya.shah@example.test"),
+        ("Kabir Nair","kabir.nair@example.test"),
+        ("Diya Thomas","diya.thomas@example.test"),
+        ("Ishaan Kulkarni","ishaan.kulkarni@example.test")
+    ]
+    member_ids = []
+    for name,email in demo_members:
+        # Random unusable demo passwords: these records are sample data, not shared login accounts.
+        cur.execute("INSERT IGNORE INTO members (name,email,password_hash,role,status) VALUES (%s,%s,%s,'member','active')",
+                    (name,email,generate_password_hash(secrets.token_urlsafe(32))))
+        cur.execute("SELECT id FROM members WHERE email=%s",(email,))
+        member_ids.append(cur.fetchone()["id"])
+
+    trainer_ids = {}
+    for _,email,_ in trainers:
+        cur.execute("SELECT id FROM trainers WHERE email=%s",(email,))
+        trainer_ids[email] = cur.fetchone()["id"]
+    plan_ids = {}
+    for name,_,_,_ in plans:
+        cur.execute("SELECT id FROM membership_plans WHERE name=%s",(name,))
+        plan_ids[name] = cur.fetchone()["id"]
+
+    today = datetime.now().date()
+    for i,member_id in enumerate(member_ids):
+        plan_name = plans[i % len(plans)][0]
+        start = today - timedelta(days=7 * (i + 1))
+        end = start + timedelta(days=plans[i % len(plans)][1])
+        cur.execute("INSERT INTO memberships (member_id,plan_id,start_date,end_date,status) VALUES (%s,%s,%s,%s,'active')",
+                    (member_id,plan_ids[plan_name],start,end))
+        membership_id = cur.lastrowid
+        cur.execute("INSERT INTO payments (member_id,membership_id,amount,payment_method,reference_code,status,paid_at) VALUES (%s,%s,%s,'demo','FITTRACK-DEMO-%s','paid',NOW())",
+                    (member_id,membership_id,plans[i % len(plans)][2],member_id))
+
+    class_specs = [
+        ("Strength Foundations","Build safe, repeatable strength with coach-led fundamentals.",trainer_ids[trainers[0][1]],1,18),
+        ("Sunrise Yoga","Mobility, balance and a calmer start to the day.",trainer_ids[trainers[1][1]],2,20),
+        ("HIIT Circuit","Short, high-energy intervals with scalable movements.",trainer_ids[trainers[2][1]],3,16),
+        ("Full Body Conditioning","A coached full-body session for all experience levels.",trainer_ids[trainers[0][1]],4,18),
+        ("Mobility Reset","Stretching and mobility for recovery days.",trainer_ids[trainers[1][1]],5,20),
+        ("Functional Fitness","Strength, stamina and movement in one session.",trainer_ids[trainers[2][1]],6,16)
+    ]
+    class_ids = []
+    for title,description,trainer_id,day_offset,capacity in class_specs:
+        starts = datetime.now().replace(hour=7 + (day_offset % 3) * 4,minute=0,second=0,microsecond=0) + timedelta(days=day_offset)
+        cur.execute("INSERT INTO fitness_classes (title,description,trainer_id,starts_at,capacity,status) VALUES (%s,%s,%s,%s,%s,'scheduled')",
+                    (title,description,trainer_id,starts,capacity))
+        class_ids.append(cur.lastrowid)
+
+    for i,member_id in enumerate(member_ids):
+        cur.execute("INSERT IGNORE INTO class_assignments (class_id,member_id,status) VALUES (%s,%s,'booked')",
+                    (class_ids[i % len(class_ids)],member_id))
+    cur.execute("INSERT INTO fittrack_seed_state (seed_key) VALUES ('fittrack-demo-v1')")
+    cur.close()
+
+
 def ensure_schema():
     global _schema_ready
     if _schema_ready:
@@ -155,6 +244,8 @@ def ensure_schema():
                 cur.execute(statement)
             conn.commit()
             cur.close()
+            seed_demo_data(conn)
+            conn.commit()
             _schema_ready = True
         finally:
             conn.close()
