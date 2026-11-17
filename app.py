@@ -577,10 +577,18 @@ def dashboard():
         cur.close()
     finally:
         conn.close()
-    db = mongo_db()
-    return jsonify({"members":members,"trainers":trainers,"active_memberships":memberships,
-                    "upcoming_classes":classes,"my_workouts":db.workout_logs.count_documents({"member_id":request.member_id}),
-                    "my_progress_entries":db.progress_logs.count_documents({"member_id":request.member_id})})
+    # Keep the SQL-backed dashboard usable even when the document database is unavailable.
+    result = {"members":members,"trainers":trainers,"active_memberships":memberships,
+              "upcoming_classes":classes,"my_workouts":None,"my_progress_entries":None,
+              "mongodb_status":"unavailable"}
+    try:
+        db = mongo_db()
+        result["my_workouts"] = db.workout_logs.count_documents({"member_id":request.member_id})
+        result["my_progress_entries"] = db.progress_logs.count_documents({"member_id":request.member_id})
+        result["mongodb_status"] = "ok"
+    except Exception:
+        app.logger.exception("MongoDB unavailable while loading dashboard")
+    return jsonify(result)
 
 @app.errorhandler(413)
 def too_large(_):
