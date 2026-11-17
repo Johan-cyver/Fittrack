@@ -112,13 +112,29 @@ def mysql_pool():
         missing = [k for k in required if not os.getenv(k)]
         if missing:
             raise RuntimeError("Missing MySQL configuration: " + ", ".join(missing))
+        db_name = os.environ["MYSQL_DATABASE"]
+        if not re.fullmatch(r"[A-Za-z0-9_]+", db_name):
+            raise RuntimeError("MYSQL_DATABASE contains unsupported characters")
+        connection_options = {
+            "host": os.environ["MYSQL_HOST"],
+            "port": int(os.getenv("MYSQL_PORT", "3306")),
+            "user": os.environ["MYSQL_USER"],
+            "password": os.environ["MYSQL_PASSWORD"],
+            "connection_timeout": 8,
+            "ssl_disabled": os.getenv("MYSQL_SSL_DISABLED", "false").lower() == "true"
+        }
+        # TiDB/MySQL Starter may begin without an application database.
+        # Bootstrap it using the supplied account, then create the pool.
+        bootstrap = mysql.connector.connect(**connection_options)
+        try:
+            cursor = bootstrap.cursor()
+            cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{db_name}`")
+            cursor.close()
+        finally:
+            bootstrap.close()
         _mysql_pool = pooling.MySQLConnectionPool(
             pool_name="fittrack_pool", pool_size=5,
-            host=os.environ["MYSQL_HOST"], port=int(os.getenv("MYSQL_PORT","3306")),
-            user=os.environ["MYSQL_USER"], password=os.environ["MYSQL_PASSWORD"],
-            database=os.environ["MYSQL_DATABASE"],
-            connection_timeout=8, autocommit=False,
-            ssl_disabled=os.getenv("MYSQL_SSL_DISABLED","false").lower() == "true"
+            **connection_options, database=db_name, autocommit=False
         )
     return _mysql_pool
 
