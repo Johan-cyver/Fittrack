@@ -263,7 +263,55 @@ def mongo_db():
         for collection_name in DOC_COLLECTIONS.values():
             database[collection_name].create_index([("member_id", 1), ("created_at", -1)])
         _mongo_indexes_ready = True
+    if os.getenv("FITTRACK_SEED_DEMO", "false").lower() == "true":
+        seed_demo_mongo(database)
     return database
+
+
+def seed_demo_mongo(database):
+    """Add synthetic activity documents for the SQL demo members, once per record."""
+    conn = get_db()
+    try:
+        cur = conn.cursor(dictionary=True)
+        cur.execute("SELECT id,email FROM members WHERE email LIKE %s ORDER BY id",
+                    ("%@example.test",))
+        members = cur.fetchall()
+        cur.close()
+    finally:
+        conn.close()
+
+    now = datetime.now(timezone.utc)
+    workout_samples = [
+        ("Strength training",45,320,"Upper-body strength session"),
+        ("Treadmill run",30,260,"Steady cardio session"),
+        ("Functional circuit",40,350,"Full-body conditioning")
+    ]
+    for index, member in enumerate(members):
+        member_id = member["id"]
+        workouts = database["workout_logs"]
+        for offset,(activity,duration,calories,notes) in enumerate(workout_samples):
+            key = f"fittrack-demo-workout-{member_id}-{offset+1}"
+            workouts.update_one({"demo_seed_key":key},{"$setOnInsert":{
+                "demo_seed_key":key,"member_id":member_id,"activity":activity,
+                "duration_min":duration,"calories":calories,"notes":notes,
+                "created_at":now-timedelta(days=offset+index)
+            }},upsert=True)
+
+        progress = database["progress_logs"]
+        for offset,weight in enumerate((78.5-index*1.2,78.0-index*1.2)):
+            key = f"fittrack-demo-progress-{member_id}-{offset+1}"
+            progress.update_one({"demo_seed_key":key},{"$setOnInsert":{
+                "demo_seed_key":key,"member_id":member_id,"weight_kg":weight,
+                "notes":"Synthetic demonstration measurement",
+                "created_at":now-timedelta(days=14-offset*7)
+            }},upsert=True)
+
+        routine_key = f"fittrack-demo-routine-{member_id}"
+        database["routines"].update_one({"demo_seed_key":routine_key},{"$setOnInsert":{
+            "demo_seed_key":routine_key,"member_id":member_id,
+            "name":"Balanced strength starter","goal":"Build strength and consistency",
+            "days_per_week":4,"created_at":now
+        }},upsert=True)
 
 def json_error(message, status=400):
     return jsonify({"error": message}), status
